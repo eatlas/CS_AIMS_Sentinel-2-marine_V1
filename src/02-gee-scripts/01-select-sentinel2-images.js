@@ -63,6 +63,10 @@ var tileID;
 // Where a reef has been split across multiple tiles then which section of the reef is
 // on the tile is indicated in brackets after the reef name.
 
+
+// =========================================================================
+//                         Coral Sea
+// =========================================================================
 //tileID = '55LBK';     // Boot Reef, Portlock Reefs (Coral Sea) - Far North
 //tileID = '54LZP';     // Ashmore Reef (Coral Sea) - Far North
 //tileID = '55LDE';     // Osprey Reef (Coral Sea) - North
@@ -76,7 +80,7 @@ var tileID;
 //tileID = '56KLG';     // North Lihou Reef (Coral Sea, Australia) - Central
                         // (Boundaries: 25, Dry Reefs: 15, Cays/Islands: 6 )
 //tileID = '56KMG';     // North East Lihou Reef tip (Coral Sea, Australia) - Central
-tileID = '55KFA';     // Flinders, Dart Heralds Surprise (Coral Sea) - Central
+//tileID = '55KFA';     // Flinders, Dart Heralds Surprise (Coral Sea) - Central
 //tileID = '55KGA';     // Malay Reef, Magdelaine Cays, Coringa Islet (South), Abington Reef, 
                         // U/N Reef (Coral Sea) - Central
 //tileID = '55KHA';     // Tregrosse Reefs, Diamond Islet West, Magdelaine Cays, Coringa Islet (South) 
@@ -104,49 +108,37 @@ tileID = '55KFA';     // Flinders, Dart Heralds Surprise (Coral Sea) - Central
 //tileID = '56KQV';     // Cato Reef (Coral Sea) - South
 //tileID = '55LCJ';     // Eastern Fields (PNG) - Far North (Just ouside Coral Sea Marine Park)
 
+// =========================================================================
+//                         Global test reefs
+// =========================================================================
+// The imagery from these reefs was generated to test our definitions
+// of reef boundaries against.
+//tileID = '51LXG';     // North West Shelf, Australia. Baracouta East Shoal
+//tileID = '51LXF';     // North West Shelf, Australia. Vulcan, Goeree Shoals
+                        // https://northwestatlas.org/nwa/pttep/synthesis2
+//tileID = '51LWG';     // North West Shelf, Australia, Ashmore reef
+//tileID = '58KCC';     // New caledonia, Yande Island                
+//tileID = '58KFC';     // New Caledonia
+//tileID = '01KCV';     // Fiji, Moce, Tubou
+//tileID = '06LWH';     // French Polynesia, Palliser Islands, Kaukura Atoll
+//tileID = '06LUJ';     // French Polynesia, Tikehau, Mataiva Atoll
+//tileID = '04NFH';     // Kitibati, Kiritimati
+//tileID = '58PGR';     // Marshall Islands, Kwajalein Atoll
+//tileID = '58PET';     // Marshall Islands, Bikini Atoll
+//tileID = '55PHK';     // Makur Islands, Namonuito Atoll
+//tileID = '53NMJ';     // Palau
+//tileID = '43NCE';     // Maldives, Hulhumale
+//tileID = '56LKR';     // PNG, Trobriand Islands
+//tileID = '56LLN';     // PNG, 
+//tileID = '55KGU';     // Australia, GBR, Hardy Reef, Block Reef
+//tileID = '55LCD';     // Australia, GBR, Lizard Island, Ribbon No 10 reef
+//tileID = '55KFU';     // Australia, GBR, Dingo Reefs, Gould Reefs
+//tileID = '56KKC';     // Australia, GBR, Cockatoo Reef, Hopley comparison 
+//tileID = '55KCB';     // Australia, GBR, Green Island, Arlington, Hopley comparison
+                        // For comparision with Hopley D, et. al., (2007), 
+                        // The Geomorphology of the Great Barrier Reef
+tileID = '51LUE';     // Australia, WA, Scott Reef
 
-// Sea mounts that probably don't have reefs.
-//tileID = '56KQU';     // Fraser Seamount - South
-//tileID = '56KQE';     // U/N Sea mount - Central AUS04634 - 29 m feature in marine chart 
-                      // Only partial image scenes. 16 images, but none with clear
-                      // view over reef area.
-//tileID = '57KTS';   // Selfridge Rock (https://web.archive.org/web/20130305015208/http://www.shom.fr/fileadmin/data-www/01-LE_SHOM/02-ACTUALITES/01-LES_COMMUNIQUES/fig_2_-_Sandy_Island.png)
-                    // Only one image and it has high cloud cover
-//tileID = '57KUS';   // Selfridge Rock 2 images but neither are useful.
-//tileID = '56KRB';   // Obstn Rep (1962) AUS04643 - only 1 image covered in clouds
-
-//tileID = '56KKG';   // Magdelaine Cays, Coringa Islet (Coral Sea, Australia) (Boundaries: 8, Dry Reefs: 2, Cays/Islands: 2 )
-
-
-// Potential shallow areas in Eastern Coral Sea
-// These areas were identified as having potentially shallow areas based
-// on the SRTM30-plus v8.0 dataset. 
-//tileID = '57KXT';   
-//tileID = '57KYT';       // Lansdowne Bank (potential 29 m Obstn)
-//tileID = '57KYS';
-//tileID = '57KZS';
-//tileID = '57KXS';
-//tileID = '57KWP';
-//tileID = '57JWN';
-
-// ------------- Global test reefs --------------
-// Reefs around the world for testing the definition of reef boundaries
-
-// Drowned coral atoll reefs because of subsidence 
-//tileID = '56NLP';   // Federated States of Micronesia
-//tileID = '55PHK';   // Federated States of Micronesia
-
-// Near surface drowned continental areas
-//tileID = '41LMJ';   // Saya de Malha Banks (1 image, not much vis)
-//tileID = '41LLJ';   // Saya de Malha Banks (6 images, 2 usable images)
-//tileID = '41LLK';   // Saya de Malha Banks 
-
-//tileID = '57KVV';   // Chesterfield Reefs
-//tileID = '57KVU';   // Chesterfield Reefs
-//tileID = '57KVT';   // Chesterfield Reefs
-//tileID = '57KVS';   // Chesterfield Reefs
-//tileID = '57KWS';   // Chesterfield Reefs
-//tileID = '57KWR';   // Chesterfield Reefs
 
 
 // Find the feature that corresponds to the specified tileID.
