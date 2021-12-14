@@ -113,10 +113,10 @@ var tileID;
 // =========================================================================
 // The imagery from these reefs was generated to test our definitions
 // of reef boundaries against.
-//tileID = '51LXG';     // North West Shelf, Australia. Baracouta East Shoal
-//tileID = '51LXF';     // North West Shelf, Australia. Vulcan, Goeree Shoals
+//tileID = '51LXG';     // North West Shelf, Australia. Baracouta East Shoal - DONE
+//tileID = '51LXF';     // North West Shelf, Australia. Vulcan, Goeree Shoals - DONE
                         // https://northwestatlas.org/nwa/pttep/synthesis2
-//tileID = '51LWG';     // North West Shelf, Australia, Ashmore reef
+//tileID = '51LWG';     // North West Shelf, Australia, Ashmore reef - DONE
 //tileID = '58KCC';     // New caledonia, Yande Island                
 //tileID = '58KFC';     // New Caledonia
 //tileID = '01KCV';     // Fiji, Moce, Tubou
@@ -134,7 +134,7 @@ var tileID;
 //tileID = '55LCD';     // Australia, GBR, Lizard Island, Ribbon No 10 reef
 //tileID = '55KFU';     // Australia, GBR, Dingo Reefs, Gould Reefs
 //tileID = '56KKC';     // Australia, GBR, Cockatoo Reef, Hopley comparison 
-//tileID = '55KCB';     // Australia, GBR, Green Island, Arlington, Hopley comparison
+//tileID = '55KCB';     // Australia, GBR, Green Island, Arlington, Hopley comparison - DONE
                         // For comparision with Hopley D, et. al., (2007), 
                         // The Geomorphology of the Great Barrier Reef
 tileID = '51LUE';     // Australia, WA, Scott Reef
