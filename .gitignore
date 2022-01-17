@@ -1,3 +1,4 @@
 *.tif
 videos/
 finaldata/*/*.png
+finaldata/*/*.jpg
