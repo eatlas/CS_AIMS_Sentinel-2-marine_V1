@@ -1,4 +1,5 @@
 *.tif
+*.vrt
 videos/
-finaldata/*/*.png
+finaldata/**/*.png
 finaldata/*/*.jpg

@@ -1,7 +1,8 @@
-// Copyright 2021 Eric Lawrey - Australian Institute of Marine Science
+// Copyright 2022 Eric Lawrey - Australian Institute of Marine Science
 // MIT License https://mit-license.org/
 
-// This script is written to run on the Google Earth Engine.
+// This script is written to run on the Google Earth Engine at 
+// https://code.earthengine.google.com/8381c7f6846e4460a5271dd8469896ae
 //
 // This script allows the user to browse through the image catalog to
 // manually select the clearest images available. These can then be
@@ -16,11 +17,11 @@ var s2Tiles = ee.FeatureCollection("users/ericlawrey/World_ESA_Sentinel-2-tiling
 // === README: Change the path to your local copy of the utils code ====
 // The path to the util code must be an absolute path including the
 // username and repository
-var utils = require('users/ericlawrey/CS_AIMS_Sentinel2-marine_V0:utils');
+var utils = require('users/ericlawrey/CS_AIMS_Sentinel2-marine_V1:utils.js');
  
 // Date range to iterate through the Sentinel 2 imagery.
 var START_DATE = ee.Date('2015-01-01');
-var END_DATE = ee.Date('2021-09-20');
+var END_DATE = ee.Date('2022-1-20');
 
 // Maximum cloud cover to include the image. Setting a low value removes
 // images that have lots of cloud that will probably not be useful for
@@ -30,7 +31,7 @@ var END_DATE = ee.Date('2021-09-20');
 // In some areas where there are very few images available. In which case
 // this can be raised up to 100 (%) to allow previewing of all available
 // imagery.
-var CLOUDY_PIXEL_PERCENTAGE = 1;
+var CLOUDY_PIXEL_PERCENTAGE = 0.1;
 
 // If true then images that are only a small fraction of the tile are
 // removed. This is useful in some areas where there are both useful
@@ -63,10 +64,6 @@ var tileID;
 // Where a reef has been split across multiple tiles then which section of the reef is
 // on the tile is indicated in brackets after the reef name.
 
-
-// =========================================================================
-//                         Coral Sea
-// =========================================================================
 //tileID = '55LBK';     // Boot Reef, Portlock Reefs (Coral Sea) - Far North
 //tileID = '54LZP';     // Ashmore Reef (Coral Sea) - Far North
 //tileID = '55LDE';     // Osprey Reef (Coral Sea) - North
@@ -108,15 +105,53 @@ var tileID;
 //tileID = '56KQV';     // Cato Reef (Coral Sea) - South
 //tileID = '55LCJ';     // Eastern Fields (PNG) - Far North (Just ouside Coral Sea Marine Park)
 
-// =========================================================================
-//                         Global test reefs
-// =========================================================================
-// The imagery from these reefs was generated to test our definitions
-// of reef boundaries against.
-//tileID = '51LXG';     // North West Shelf, Australia. Baracouta East Shoal - DONE
-//tileID = '51LXF';     // North West Shelf, Australia. Vulcan, Goeree Shoals - DONE
-                        // https://northwestatlas.org/nwa/pttep/synthesis2
-//tileID = '51LWG';     // North West Shelf, Australia, Ashmore reef - DONE
+
+// Sea mounts that probably don't have reefs.
+//tileID = '56KQU';     // Fraser Seamount - South
+//tileID = '56KQE';     // U/N Sea mount - Central AUS04634 - 29 m feature in marine chart 
+                      // Only partial image scenes. 16 images, but none with clear
+                      // view over reef area.
+//tileID = '57KTS';   // Selfridge Rock (https://web.archive.org/web/20130305015208/http://www.shom.fr/fileadmin/data-www/01-LE_SHOM/02-ACTUALITES/01-LES_COMMUNIQUES/fig_2_-_Sandy_Island.png)
+                    // Only one image and it has high cloud cover
+//tileID = '57KUS';   // Selfridge Rock 2 images but neither are useful.
+//tileID = '56KRB';   // Obstn Rep (1962) AUS04643 - only 1 image covered in clouds
+
+//tileID = '56KKG';   // Magdelaine Cays, Coringa Islet (Coral Sea, Australia) (Boundaries: 8, Dry Reefs: 2, Cays/Islands: 2 )
+
+
+// Potential shallow areas in Eastern Coral Sea
+// These areas were identified as having potentially shallow areas based
+// on the SRTM30-plus v8.0 dataset. 
+//tileID = '57KXT';   
+//tileID = '57KYT';       // Lansdowne Bank (potential 29 m Obstn)
+//tileID = '57KYS';
+//tileID = '57KZS';
+//tileID = '57KXS';
+//tileID = '57KWP';
+//tileID = '57JWN';
+
+// ------------- Global test reefs --------------
+// Reefs around the world for testing the definition of reef boundaries
+
+// Drowned coral atoll reefs because of subsidence 
+//tileID = '56NLP';   // Federated States of Micronesia
+//tileID = '55PHK';   // Federated States of Micronesia
+
+// Near surface drowned continental areas
+//tileID = '41LMJ';   // Saya de Malha Banks (1 image, not much vis)
+//tileID = '41LLJ';   // Saya de Malha Banks (6 images, 2 usable images)
+//tileID = '41LLK';   // Saya de Malha Banks 
+
+//tileID = '57KVV';   // Chesterfield Reefs 7 images
+//tileID = '57KVU';   // Chesterfield Reefs
+//tileID = '57KVT';   // Chesterfield Reefs
+//tileID = '57KVS';   // Chesterfield Reefs  11 images
+//tileID = '57KWS';   // Chesterfield Reefs, lots of sunglint
+tileID = '57KWR';   // Chesterfield Reefs, Not images at 0.1% cloud
+tileID = '57KWU';   // Chesterfield Reefs, Infamous non existant 'Sandy Island'
+
+// --------------------------------------------------------
+
 //tileID = '58KCC';     // New caledonia, Yande Island                
 //tileID = '58KFC';     // New Caledonia
 //tileID = '01KCV';     // Fiji, Moce, Tubou
@@ -134,13 +169,29 @@ var tileID;
 //tileID = '55LCD';     // Australia, GBR, Lizard Island, Ribbon No 10 reef
 //tileID = '55KFU';     // Australia, GBR, Dingo Reefs, Gould Reefs
 //tileID = '56KKC';     // Australia, GBR, Cockatoo Reef, Hopley comparison 
-//tileID = '55KCB';     // Australia, GBR, Green Island, Arlington, Hopley comparison - DONE
-                        // For comparision with Hopley D, et. al., (2007), 
-                        // The Geomorphology of the Great Barrier Reef
-tileID = '51LUE';     // Australia, WA, Scott Reef
+//tileID = '55KCB';     // Australia, GBR, Green Island, Arlington, Hopley comparison
+                      // For comparision with Hopley D, et. al., (2007), 
+                      // The Geomorphology of the Great Barrier Reef
+//tileID = '56KLB';       // Australia, GBR, North west Swains, Heralds Reef
+//tileID = '56KMA';       // Australia, GBR, South east Swains, Horseshoe, Hackle
+//tileID = '56KMU';       // Australia, GBR, Lady Musgrave
+//tileID = '55KEV';       // Australia, GBR, Davies, Grub, Chicken
+//tileID = '51LUE';     // Australia, WA, Scott Reef
+//tileID = '49KGR';     // Australia, WA, Ningaloo reef
+tileID = '51LYE';     // Australia, WA, Bonaparte Archipelago, Long Reef 
+//tileID = '51LXG';   // North West Shelf, Australia. Baracouta East Shoal
+//tileID = '51LXF';   // North West Shelf, Australia. Vulcan, Goeree Shoals
+                      // https://northwestatlas.org/nwa/pttep/synthesis2
+//tileID = '51LWG';                      // North West Shelf, Australia, Ashmore reef
+//tileID = '51LXH';     // North West Shelf
+//tileID = '51LYH';     // North West Shelf
+//tileID = '51LWH';     // North West Shelf
+//tileID = '51MWT';       // Indonesia, Melilis Island
+//tileID = '51PWN';       // Philippines, Visayan Sea, Bantayan Island
+//tileID = '37PFT';       // Eritrea, Red Sea, Dahlak Marine National Park
 
 
-
+                      
 // Find the feature that corresponds to the specified tileID.
 // Filter to Australia. This is to reduce the number of tiles that need 
 // to be searched.

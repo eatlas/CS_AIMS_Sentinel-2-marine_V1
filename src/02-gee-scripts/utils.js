@@ -4,7 +4,9 @@
  * and exporting an image for each colourGrade.
  * 
  * The composite image removes sunglint and uses cloud masking to produce
- * a composite that is optimised for studying marine features.
+ * a composite that is optimised for studying marine features. It also
+ * applied brightness normalisation to adjust the beightness so that the
+ * deep clear water in scenes are standardised.
  * 
  * The imageIds to use can be compiled using the 01-select-best-sentinel2-images
  * script.
@@ -41,11 +43,20 @@
  *                                  {date range}-n{number of images}
  *        {string} exportFolder -   Folder in Google Drive to export the image to. The colourGrade
  *                                  is appended to the folder to file tiles based on colourGrades.
- *        {integer} scale -         Default scale to apply to the exports in metres. For Sentinel 2
+ *        [{integer}] exportScale - Default scale to apply to the exports in metres. For Sentinel 2
  *                                  full resolution exports would be 10. Set scale higher if you
  *                                  wish to lower the resolution of the export. It is probably
  *                                  wise to keep it a ratio of the native image resolution of 10 m
  *                                  for best quality, noting I have not tested this theory.
+ *                                  The array of values corresponds to the scale to use for each of the
+ *                                  colourGrades.
+ *        {boolean} applyBrightnessAdjustment - Apply brightness adjustment to the composite to normalise
+ *                                  the brightness of marine areas across scenes.
+ *        {boolean} applySunglintCorrection - Apply sunglint correction to the imagery prior to
+ *                                  creating as a composite. Note that turning off sunglint
+ *                                  correction will significantly alter the brightness of the
+ *                                  imagery as the contrast enhancements are tailored to 
+ *                                  sunglint being applied.
  */
 exports.s2_composite_display_and_export = function(
     imageIds, is_display, is_export, options) {
@@ -53,6 +64,7 @@ exports.s2_composite_display_and_export = function(
   var colourGrades = options.colourGrades;
   var exportFolder = options.exportFolder;
   var exportBasename = options.exportBasename;
+  var exportScale = options.exportScale;
   
   
   
@@ -60,41 +72,55 @@ exports.s2_composite_display_and_export = function(
   if (!(is_export || is_display)) {
     return;
   }
-  // Extract this from the imageIds.
-  // Convert:
+  if (!Array.isArray(colourGrades)) {
+    throw "For tiles "+utmTilesString+
+      " colourGrades must be an array for proper behaviour";
+  }
+  var uniqueUtmTiles = exports.unique_s2_tiles(imageIds);
+  // Make sure we are dealing with a single image tile.
+  if (uniqueUtmTiles.length > 1) {
+    throw "s2_composite only supports images from a single tile found: "+
+      String(uniqueUtmTiles);  
+  }
   
-  // Determine the set of Sentinel 2 UTM tiles that are being composed together.
-  // Use this set to create part of the final file name.
-  // "COPERNICUS/S2/20170812T003031_20170812T003034_T55KDV"
-  // To:
-  // "55KDV"
-  var utmTiles = imageIds.map(function(id) {
-    // Find the position of the characters just before the UTM
-    // tile in the Sentinel-2 IDs. 
-    var n = id.lastIndexOf("_T")+2;
-    return id.substr(n);
-  });
+  if (is_export && !Array.isArray(exportScale)) {
+    throw "options.exportScale should be an array was: "+exportScale;
+  }
   
-  // Remove duplicates in the tileIds. 
-  // Modified from 
-  // https://stackoverflow.com/questions/9229645/remove-duplicate-values-from-js-array
-  var seen = {};
-  var uniqueUtmTiles = utmTiles.filter(function(item) {
-        return seen.hasOwnProperty(item) ? false : (seen[item] = true);
-  });
+  if (is_export && (colourGrades.length != exportScale.length)) {
+    throw "number of elements in options.exportScale ("+exportScale.length+") "+
+      "must match the options.colourGrades ("+colourGrades.length+")";
+  }
   
+  // Save the projection of the Sentinel 2 tile using the first
+  // image and first band. (All images and bands should be the same)
+  // This is needed for the slope styling as it needs to reproject
+  // the composite back to this projection (a UTM projection) for the
+  // slope calculation. (see 02-debug-slope.js) 
+  // Images of different regions of the world will have different 
+  // UTM projections. 
+  // We don't save this information in the composite image as a
+  // property because any operations on the image delete the property
+  // (see 02-debug-saving-projection.js).
+  var UTMprojection = ee.Image(imageIds[0]).select('B1').projection();
+  
+  // Get the projection for the current Sentinel 2 tile.
+
+  var composite = exports.s2_composite(imageIds, 
+    options.applySunglintCorrection, options.applyBrightnessAdjustment);
+
   var utmTilesString = uniqueUtmTiles.join('-');
   
   // Get the years and months of the images in the composite to
   // generate a date range to put in the filename
   // COPERNICUS/S2/20170812T003031_20170812T003034_T55KDV"
   // To:
-  // "201708"
+  // "2017"
   var tileDates = imageIds.map(function(id) {
     // Find the position of the characters just after S2/
     // tile in the Sentinel-2 IDs. 
     var n = id.lastIndexOf("S2/")+3;
-    return id.substr(n,6);
+    return id.substr(n,4);
   });
   
   var dateRangeStr;
@@ -104,67 +130,35 @@ exports.s2_composite_display_and_export = function(
   
   if (tileDates.length === 1) {
     // Just use the one date in the name
-    // 201606-n1
+    // 2016-n1
     dateRangeStr = datesInOrder[0]+'-n1';
   } else {
     // Get the start and end dates
-    // 201606-202008-n5
+    // 2016-2020-n5
     dateRangeStr = datesInOrder[0]+'-'+datesInOrder[datesInOrder.length-1]+
       '-n'+datesInOrder.length;
   }
-
-  if (!Array.isArray(colourGrades)) {
-    print("ERROR: For tiles "+utmTilesString+
-      " colourGrades must be an array for proper behaviour");
-    return;
-  }
-  
-  // Get the outter boundary polygon of the tiles
-  // This is to help make the get_s2_cloud_collection process more
-  // efficient. This part can be reused, however we only need it 
-  // here to be used once.
-  var tilesGeometry = exports.get_s2_tiles_geometry(
-    imageIds, ee.Geometry.BBox(109, -33, 158, -7));
-  
-  // Can't seem to test for an empty geometry in GEE.
-
-  var s2_cloud_collection = exports.get_s2_cloud_collection(imageIds, tilesGeometry);
-
-  var composite = s2_cloud_collection
-    .map(exports.removeSunGlint);
-  
-  // Don't apply a cloud mask if there is only a single image
-  var applyCloudMask = imageIds.length > 1;
-  if (applyCloudMask) {
-    composite = composite.map(exports.add_s2_cloud_shadow_mask)
-      .map(exports.apply_cloud_shadow_mask)
-      .reduce(ee.Reducer.percentile([50],["p50"]))
-      .rename(['B1','B2','B3','B4','B5','B6','B7','B8',
-        'B8A','B9','B10','B11','B12','QA10','QA20','QA60','cloudmask']);
-  } else {
-
-    composite = composite
-      .reduce(ee.Reducer.percentile([50],["p50"]))
-      .rename(['B1','B2','B3','B4','B5','B6','B7','B8',
-        'B8A','B9','B10','B11','B12','QA10','QA20','QA60']);
-  }
     
   var includeCloudmask = false;
+  
+  var tilesGeometry = exports.get_s2_tiles_geometry(
+    imageIds, ee.Geometry.BBox(-180, -33, 180, 33));
   
   // Prepare images for each of the specified colourGrades
   for (var i=0; i < colourGrades.length; i++) {
     
     
-    // Example name: AU_AIMS_Sentinel2-marine_V1_TrueColour_55KDU_201606-202008-n10
+    // Example name: AU_AIMS_Sentinel2-marine_V1_TrueColour_55KDU_2016-2020-n10
     var exportName = exportBasename+'_'+colourGrades[i]+
       '_'+utmTilesString+'_'+dateRangeStr;
       
     // Create a shorter display name for on the map.
-    // Example name: TrueColour_55KDU_201606-202008-n10
+    // Example name: TrueColour_55KDU_2016-2020-n10
     var displayName = colourGrades[i]+
       '_'+utmTilesString+'_'+dateRangeStr;
 
-    var final_composite = exports.bake_s2_colour_grading(composite, colourGrades[i], includeCloudmask);
+    var final_composite = exports.bake_s2_colour_grading(
+      composite, colourGrades[i], includeCloudmask, UTMprojection);
   
     // Scale and convert the image to an 8 bit image to make the export
     // file size considerably smaller.
@@ -182,13 +176,15 @@ exports.s2_composite_display_and_export = function(
       print("======= Exporting image "+exportName+" =======");
       //var saLayer = ui.Map.Layer(tilesGeometry, {color: 'FF0000'}, 'Export Area');
       //Map.layers().add(saLayer);
+      
+    
       Export.image.toDrive({
         //image: final_composite,
         image: uint8_composite,
         description: exportName,
         folder:exportFolder,
         fileNamePrefix: exportName,
-        scale: 10,          // Native image resolution of Sentinel 2 is 10m.
+        scale: exportScale[i],          // Native image resolution of Sentinel 2 is 10m.
         region: tilesGeometry,
         maxPixels: 3e8      // Raise the default limit of 1e8 to fit the export
       });
@@ -203,6 +199,398 @@ exports.s2_composite_display_and_export = function(
     } 
   }
 };
+
+
+/**
+ * This function returns an array of the unique set of Sentinel 2 tiles from
+ * the provided set of image Ids. For example:
+ * image Id: "COPERNICUS/S2/20170812T003031_20170812T003034_T55KDV"
+ * tile Id: "55KDV"
+ */
+exports.unique_s2_tiles = function(imageIds) {
+  // Determine the set of Sentinel 2 UTM tiles that are being composed together.
+  // Use this set to create part of the final file name.
+  // "COPERNICUS/S2/20170812T003031_20170812T003034_T55KDV"
+  // To:
+  // "55KDV"
+  var utmTiles = imageIds.map(function(id) {
+    // Find the position of the characters just before the UTM
+    // tile in the Sentinel-2 IDs. 
+    var n = id.lastIndexOf("_T")+2;
+    if (n==1) {
+      throw "imageIds don't match Sentinel 2 format: "+id;
+    }
+    return id.substr(n);
+  });
+  
+  // Remove duplicates in the tileIds. 
+  // Modified from 
+  // https://stackoverflow.com/questions/9229645/remove-duplicate-values-from-js-array
+  var seen = {};
+  var uniqueUtmTiles = utmTiles.filter(function(item) {
+        return seen.hasOwnProperty(item) ? false : (seen[item] = true);
+  });
+  return (uniqueUtmTiles);
+};
+
+/**
+ * This function creates a composite image from a list of Sentinel 2 image IDs.
+ * This function applies cloud masking and sunglint correction to the images
+ * prior to creating the composite. This function does not perform any
+ * brightness compensation on the image. Use s2_composite_brightness_normalisation()
+ * if this is needed.
+ * This saves the projection of the original images as a property ('image_projection')
+ * to the resulting composite image. For Sentinel 2 this corresponds to a UTM projection. 
+ * The composite image is reprojected to EPSG:4326 as part of the reduction process. This
+ * projection is unsuitable for ee.Terrain.slope calculations (as the units are in degrees
+ * instead of metres). The 'image_projection' property record the appropriate UTM projection
+ * to reproject back to if you wish to perform a slope calculation.
+ * (see 02-debug-slope.js for more information). 
+ * @param {String[]} imageIds -     Google Earth image IDs of Sentinel 2 images to merge into 
+ *                                  a composite.
+ * @param {boolean} applyBrightnessAdjustment - If true then apply a brightness adjustment to the
+ *                                  composite that normalises the brightness of deep clear
+ *                                  marine areas. This uses s2_composite_brightness_normalisation().
+ *                                  Normally this parameter should be true, but was added to allow
+ *                                  the generation of example images to show the effect of the 
+ *                                  brightness adjustment in the dataset documentation and reporting. 
+ *                                  Note: version 0 of this dataset did not have this correction.
+ * @param {boolean} applySunglintCorrection - If true then apply sunglint correction (marine areas)
+ *                                  and matching static atmospheric for land areas to the imagery
+ *                                  prior to creating the composite image. 
+ *                                  Normally this parameter should be true, but was added to allow
+ *                                  the generation of example images to show the effect of the 
+ *                                  sunglint correction in the dataset documentation and reporting.
+ * @return {Image}                  Returns the final composite image. In most situations this
+ *                                  image can be ignored if you are using isDisplay or isExport
+ *                                  as true and don't wish to perform additional processing.
+ */
+exports.s2_composite = function(imageIds, applySunglintCorrection, applyBrightnessAdjustment) {
+  
+  // We only support a single tile. This is to make processing the 
+  // projection information more straight forward. If we know the
+  // images are all from a single Sentinel 2 tile then we can get
+  // the projection information from the first image.
+  var tiles = exports.unique_s2_tiles(imageIds);
+  if (tiles.length > 1) {
+    throw "s2_composite only supports images from a single tile found: "+String(tiles);  
+  }
+  // Get the outter boundary polygon of the tiles
+  // This is to help make the get_s2_cloud_collection process more
+  // efficient. This part can be reused, however we only need it 
+  // here to be used once.
+  // Restrict the processing to the latitudes where coral reefs occur.
+  // This reduces the number of s2 tiles. Note I couldn't work out
+  // how to generate a proper error message when it there are requested
+  // s2 tiles that are outside this boundary.
+  var tilesGeometry = exports.get_s2_tiles_geometry(
+    //imageIds, ee.Geometry.BBox(109, -33, 158, -7));
+    imageIds, ee.Geometry.BBox(-180, -33, 180, 33));
+    
+  
+  // Can't seem to test for an empty geometry in GEE.
+  // Get the collection of images specified by imageIds and add the matching
+  // cloud masks to these images. Pass in the tilesGeometry so that 
+  // it only needs to be calculated once.
+  var s2_cloud_collection = exports.get_s2_cloud_collection(imageIds, tilesGeometry);
+  
+  // Work out the projection of the original imagery. 
+  // The original Sentinel 2 imagery is in UTM projections. Which specific
+  // one depends on where the imagery is in the world. The units of UTM
+  // projections are in metres, which makes is suitable for slope calculations.
+  // (Although strictly speaking UTM is not an equal area and so slight errors
+  // would be introduced depending on your location on the earth).
+  // 
+  // When we create a composite image using a Reduce function the imagery
+  // is reprojected from its original UTM projection to a more universal
+  // EPSG:4326 projection. This allows imagery of multiple projections to
+  // be combine in a composite image. 
+  //
+  // This reprojection prevents slope calculations (ee.Terrain.slope) from
+  // working on composite images (see 02-debug-slope.js for more info).
+  //
+  // Since we process one Sentinel 2 tile at a time each composite should
+  // be able to be represented using a single UTM projection, the same as
+  // the images that when into it.
+  // 
+  // To perform slope calculations we need to reproject the data back to
+  // the original UTM projection. 
+  // Unfortunately the reproduction process is memory intensive and slow
+  // and thus we don't want to perform this transformation if we are not
+  // doing slope calculations. Due to memory limitations in the interactive
+  // GEE we can only reproject at 30 m resolution rather than at native
+  // 10 m scale and thus we don't perform the reprojection routinely 
+  // in this function. Instead we record the original UTM projection as
+  // a property of the composite image so that if subsequent processing
+  // (such as slope calculations) need to perform the reprojection they
+  // can easily determine the appropriate UTM projection to use.
+  
+  // At this point we know that all images are from the same Sentinel 2
+  // tile and so the projection of all images will all be the same.
+  // The projection function fails if there are multiple bands in
+  // the image, so use B1 as a reference. The projection of all the
+  // bands is the same for Sentinel 2 imagery.
+  var projection = s2_cloud_collection.first().select('B1').projection();
+  
+  var composite_collection = s2_cloud_collection;
+  
+  
+  if (applySunglintCorrection) {
+    composite_collection = s2_cloud_collection.map(exports.removeSunGlint);
+  } 
+
+  var composite;  
+  
+  // Don't apply a cloud mask if there is only a single image
+  var applyCloudMask = imageIds.length > 1;
+  if (applyCloudMask) {
+    composite = composite_collection.map(exports.add_s2_cloud_shadow_mask)
+      .map(exports.apply_cloud_shadow_mask)
+      .reduce(ee.Reducer.percentile([50],["p50"]))
+      .rename(['B1','B2','B3','B4','B5','B6','B7','B8',
+        'B8A','B9','B10','B11','B12','QA10','QA20','QA60','cloudmask']);
+  } else {
+
+    composite = composite_collection
+      .reduce(ee.Reducer.percentile([50],["p50"]))
+      .rename(['B1','B2','B3','B4','B5','B6','B7','B8',
+        'B8A','B9','B10','B11','B12','QA10','QA20','QA60']);
+  }
+  
+  // Correct for a bug in the reduce process. The reduce process
+  // does not generate an image with the correct geometry. Instead
+  // the composite generated as a geometry set to the whole world.
+  // this can result in subsequent processing to fail or be very 
+  // inefficient.
+  // We work around this by clipping the output to the dissolved
+  // geometry of the input collection of images.
+  composite = composite.clip(composite_collection.geometry().dissolve());
+
+  // Save the projection for later if needed
+  composite = composite.set('image_projection', projection);
+
+  // Perform the brightness adjustment in this function as we have the 
+  // tileGeometry available. This is a bit of a hack because I couldn't
+  // determine a method of getting the geometry directly from the 
+  // composite image itself.
+  if (applyBrightnessAdjustment) {
+    composite = exports.s2_composite_brightness_normalisation(composite, tilesGeometry);
+  }
+  return(composite);
+};
+
+
+
+/**
+ * This function aims to normalise the brightness of composite Sentinel 2
+ * imagery, prior to any contrast enhancement. This is intended for 
+ * imagery focusing on the marine environment (i.e. the correction is
+ * optimised for marine areas) and assumes that the image provided
+ * has had sunglint correction and cloud masking applied prior to
+ * the creation of a composite image. 
+ * 
+ * This brightness normalisation based on the applying a per channel
+ * uniform offset calculated based on the brightness difference between
+ * the composite image provided and a reference scene. The scene brightness
+ * estimation process focuses on calculating the brightness offset only
+ * from deep clear water areas of the scene. It is intended to normalise 
+ * the brightness of the deep water areas of the imagery. 
+ * 
+ * This processing was needed because it was discovered in version 0 of 
+ * this dataset (https://eatlas.org.au/data/uuid/2932dc63-9c9b-465f-80bf-09073aacaf1c)
+ * that some scenes were significantly darker than others resulting in
+ * almost black scenes after contrast enhancement. Slight offset differences
+ * in the brightness, due to water clarity, the set of images used and 
+ * the spatial location of the scene, were greatly exaggerated by the 
+ * strong contrast enhancement applied to the composite imagery.
+ * 
+ * This brightness normalisation does not consider land areas
+ * in its adjustment and may not work at all for scenes without significant
+ * deep water views. This algorithm has been optimised for use in the Coral
+ * Sea where the water is clear. As such it may not work very well in scenes
+ * where the water is very turbid. The goal of this function is to normalise
+ * the scene brightness for Sentinel 2 scenes in the Coral Sea.
+ * 
+ * This function works by masking out land areas (based on bright B8 areas),
+ * shallow areas (based on bright B4 areas), and medium depth areas to 
+ * approx 8 - 10 m using B3. The remaining area is assumed to be clean
+ * deep water. The 5th percentile image statistics of this area is then 
+ * performed at 250 m resolution. The difference between 5th percentile
+ * of the image and the 5th percentile of a reference image (flinder reef)
+ * is then applied to each channel from B1 - B4.
+ * 
+ * Note that this function does not consider clouds and thus is probably
+ * only suitable for application on cloud free composite images. It is likely
+ * that using it on images with clouds or prior to sunglint correction
+ * would result in the significant errors in the pixel image statistics
+ * of the target area resulting in noise in the brightness adjustment that
+ * is larger than what we are trying to compensate for. i.e. it is likely
+ * to make the image worse.
+ * 
+ * This function does not adjust for the angular banding that occurs in
+ * Sentinel 2 imagery due to its striped sensor arrangement. 
+ * 
+ * @param {Image} composite - Composite image to apply the brightness offset
+ *                            to.
+ * @param {ee.Geometry} tileGeom - Geometry of the boundary of the composite 
+ *                            image. Having this as a parameter is a bit of 
+ *                            a hack as the function should be able to work
+ *                            this out from the composite image. Unfortunately
+ *                            my attempts failed. It is unclear whether this
+ *                            is a bug in GEE or I was using the wrong approach.
+ *                            The tileGeom is normally calculated from the
+ *                            the original imageIds that make up the composite.
+ */
+exports.s2_composite_brightness_normalisation = function(composite, tileGeom) {
+  // Our goal is to create a mask that focuses on deeper water areas.
+  // We will then use these areas to estimate the brightness offsets
+  // to apply to the image. The goal is to work out the brightness adjustment
+  // needed between scenes. Since we stretch the contrast a lot in the final
+  // images any slight changes in the image brightness lead to large changes
+  // in the final contrast enhanced image. Here we are trying to work out
+  // what the offset is for the given composite. We don't want this processing
+  // to be affected by clouds, which is why we are using the cloud free
+  // composite for the estimation. We also don't want it to be affected by 
+  // land and shallow reef areas as we want to compare the current image
+  // to a fixed water brightness. 
+  
+  // Try to mask off all the things in the image that are not clear open water.
+  // Since we are applying fixed thresholds the actual brightness offset of
+  // the image will affect this masking slightly, however the final calculation
+  // will use a percentile to estimate the open dark water and so the inclusion
+  // of a small amount of imperfectly masked areas shouldn't hopefully affect
+  // the estimate too much.
+  
+  // Mask off shallow areas as these are typically very bright in all visible
+  // channels and are not open water.
+  // Shallow water areas ~5 m depth. This also masks off inshore very turbid
+  // waters which is not detected by the mediumMask based on the green band (B3)
+  // Parameter tuning history:
+  // Cairns, Green Island, Tongue Reef (55KCB): Ideal: 220
+  //   150: Reef tops to 5 m. Some slight scattered small artifacts. Some land
+  //        masked (~ 50%). Large inshore area masked off.
+  //   220: Reef tops to 4-5 m. Some slight scattered small artifacts (~50% of 150). 
+  //        Some land masked (~ 40%).
+  //   300: Reef tops to ~4 m. Some slight scattered small artifacts (~70% of 220)
+  //        Masked inshore edge is much smaller (20% of 150).
+  var shallowMask = composite.select('B4').gt(220);
+  
+  // Pick up slightly deeper areas than the red channel (B4)
+  // This threshold was picked to minimise false positives.
+  // Parameter tuning history:
+  // Boot Reef (55LBK): 
+  //   400: Onset of non-reefal (cloud) false positives
+  //   600: About 50% of deep reef area not captured
+  // Cairns, Green Island, Tongue Reef (55KCB): ideal: 600
+  //   400: Too much of the inshore and midshelf areas is masked off 
+  //        It is masked all the way to the reefs.
+  //   600: Inshore areas masked off, reef masked to about 10 m.
+  // Ashmore Reef (54LZP): ideal: ~ 400
+  //   600: Reef tops to ~ 8 - 10 m + scattered poorly masked clouds
+  //   400: Deeper coverage of reefs (~ 15 m) + scattered poorly masked clouds +
+  //        some clear water on the inside of the barrier reef.
+  
+  var mediumMask = composite.select('B3').gt(600);
+  
+  // Land and very shallow areas. This threshold was trimmed high enough
+  // so that the false positives due to unresolved noise from clouds does
+  // not result in too many false positives.
+  // Parameter tuning history:
+  // Cairns, Green Island, Tongue Reef (55KCB): optimal: 450
+  //   300: Tops of some reefs masked, with is OK. Significant cloud
+  //        artifacts on right side of image (no OK).
+  //   450: Some very light scattered offshore artifacts. Land well masked.
+  //        Some shadowed mountain areas are unmasked.
+  //   600: 1/5 the amount of offshore artifacts as 450. Some shadowed mountain
+  //        areas are unmasked.
+  //   900: More holes in mountain shadows. No offshore artifacts.
+  // Boot Reef (55LBK) 
+  // This area has less clear water, but no land
+  //   300: Lots of scattered cloud artifacts and some reef tops (OK)
+  //   450: Scattered cloud artifacts, about 5 times less than 300
+  //   600: Very small number of cloud artifacts.
+  // Ashmore Reef (54LZP)
+  //   300: Some scattered cloud artifacts
+  //   450: Very light scattered artifacts from poorly masked clouds
+  //   600: Poorly masked clouds still visible
+  var landMask = composite.select('B8').gt(450); 
+  
+  var overallMask = shallowMask.or(mediumMask).or(landMask).not();
+  
+  var maskedComposite = composite.updateMask(overallMask);
+  
+  var openWaterImage = maskedComposite.select(
+  ['B1','B2','B3','B4']);
+  
+  // Use a low percentile to estimate the lower bound of
+  // scene brightness. We use a percentile, rather than a pixel minimum
+  // to reduce the noise in the scene brightness estimate.
+  // Use 250 m resolution rather than native 10 m resolution to reduce
+  // compuational load.
+  var imgStats = openWaterImage.reduceRegion({
+    reducer: ee.Reducer.percentile([5]),
+    geometry: tileGeom,
+    scale: 250,
+    maxPixels: 1e8
+  });
+
+  // Use for investigating masking and offset performance
+  //Map.addLayer(maskedComposite, 
+  //{'bands':['B4', 'B3', 'B2'], 'min': 0, 'max': 1400, 'gamma': 1},
+  //"masked Composite", true, 1);
+  //print(imgStats);
+  
+  // Scale the amount of scene brightness adjustment based on the 
+  // amount of deep water in the image. The brightness correction is
+  // only calculated from deep clear water and so if the scene has
+  // little water or is all land then the brightness correction 
+  // estimate will be poor. We therefore weight the amount of correction
+  // applied to the scene based on the percentage area of the
+  // open water mask as a fraction of the image area.
+  // The weighting uses a square root of the open water area percentage
+  // so that the open water area percentage has to get quite low before
+  // the brightness offset is significantly down weighted.
+  var maskedPixelCount = maskedComposite.select('B1').reduceRegion({
+    reducer: ee.Reducer.count(),
+    geometry: tileGeom,
+    scale: 250,
+    maxPixels: 1e8
+  }).get('B1');
+
+  var noMaskPixelCount = composite.select('B1').reduceRegion({
+    reducer: ee.Reducer.count(),
+    geometry: tileGeom,
+    scale: 250,
+    maxPixels: 1e8
+  }).get('B1');
+
+  var percentMasked = ee.Number(maskedPixelCount).divide(noMaskPixelCount);
+  var adjScalar = percentMasked.sqrt();
+  // Adjust the brightness of each channel to match the statistics 
+  // of a reference scene (Flinders Reef 55KFA) that gave a good 
+  // scene brightness.
+  // These offsets are linked to the contrast enhancement thresholds
+  // in bake_s2_colour_grading. Changing the offsets here will
+  // result in different black levels in each of the channels
+  // which will result in a different colour balance of the 
+  // images created from bake_s2_colour_grading.
+  var adjB1 = composite.select(['B1']).subtract(
+    ee.Image(ee.Number(imgStats.get('B1')).subtract(1174).multiply(adjScalar)));
+  var adjB2 = composite.select(['B2']).subtract(
+    ee.Image(ee.Number(imgStats.get('B2')).subtract(753).multiply(adjScalar)));
+  var adjB3 = composite.select(['B3']).subtract(
+    ee.Image(ee.Number(imgStats.get('B3')).subtract(338).multiply(adjScalar)));
+  var adjB4 = composite.select(['B4']).subtract(
+    ee.Image(ee.Number(imgStats.get('B4')).subtract(121).multiply(adjScalar)));
+  
+  var adjComposite = composite
+      .addBands(adjB1,['B1'], true)
+      .addBands(adjB2,['B2'], true)
+      .addBands(adjB3,['B3'], true)
+      .addBands(adjB4,['B4'], true);
+  return(adjComposite);
+};
+
 
 
 /**
@@ -242,10 +630,18 @@ exports.add_s2_cloud_shadow_mask = function(img) {
   // Cloud probability threshold (%); values greater are considered cloud
   
   var low_cloud_mask = exports.get_s2_cloud_shadow_mask(img, 
-    40,   // (cloud predication prob) Use low probability to pick up smaller
+    35,   // (cloud predication prob) Use low probability to pick up smaller
           // clouds. This threshold still misses a lot of small clouds. 
           // unfortunately lowering the threshold anymore results in sand cays
           // being detected as clouds.
+          // Note that for the atolls on 06LUJ and 06LWH the cays and shallow
+          // reefs are considered clouds to a high probability. Having a threshold
+          // of 40 results in approx 80% of the atoll rim being masked as a cloud.
+          // Raising the threshold to 60 still results in about 60% being masked
+          // as cloud. A threshold of 80 still masks about 30% of the cay area.
+          // Setting the threshold to 60 results in lots of small clouds remaining
+          // in images. We therefore use a lower threshold to cover off on these
+          // clouds, at the expense of making out from of the cays.
     0,    // (m) Erosion. Keep small clouds.
     0.4,  // (km) Use a longer cloud shadow
     150    // (m) buffer distance
@@ -809,19 +1205,48 @@ exports.apply_cloud_shadow_mask = function(img) {
  *                      a 6 m depth. The threshold was raised above the noise floor to reduce false
  *                      positives. This threshold was chosen to not have too many false positive 
  *                      in the coral sea, where waves contribute significant noise into the red channel.
+ *      'B3ReefBoundary' - This corresponds to a grey scale high contrast (almost binary) image
+ *                      with a threshold chosen to match reef boundaries. This threshold was derived
+ *                      from the B3 channel.
+ *                      This provides a proxy for approximately 20 - 25 m depth in clear water, 
+ *                      and is a useful reference in determining reef boundaries, particularly 
+ *                      determining sand areas that should be included in the reef boundary. 
+ *                      The threshold was chosen to be close to as deep as possible in this channel, 
+ *                      without introducing too many false positives due to wave and cloud noise. 
+ *                      The threshold was tweaked to approximately match reef boundaries on the GBR.
+ *      'B2ReefBoundary' - This corresponds to a grey scale high contrast (almost binary) image
+ *                      with a threshold chosen to match reef boundaries. This threshold was derived
+ *                      from the B2 channel. 
+ *      'Slope' -       This calculates the slope based on the change in the brightness of the imagery.
+ *                      In clear water, with a uniform sea bed substrate the brightness is
+ *                      can be used to approximate the depth and thus a change in brightness
+ *                      represents a change in depth. Steep sloped areas typically correspond to
+ *                      the boundaries of marine features. This is based on B2, B3, B4
+ *      'SlopeFalse' -  Same as slope but based on B1, B2, B3
  * @param {Boolean} processCloudMask - If true then copy over the cloudMask band.
  *            This is a slight hack because I couldn't work out how to perform
  *            conditional GEE server side execution, and cloning the original
  *            image to include channels other than B2, B3 and B4, followed by 
  *            applying the contrast enhancement didn't seem to work.
+ * @param {ee.Projection} UTMprojection - WGS84/UTM projection of the Sentinel 2 image. This
+ *            relevant for the 'slope' styling, as the composite imagery needs to be converted
+ *            from WGS84 to WGS84/UTM for the ee.Terrain.slope to work (see 02-debug-slope.js)
+ *            
  */
-exports.bake_s2_colour_grading = function(img, colourGradeStyle, processCloudMask) {
+exports.bake_s2_colour_grading = function(img, colourGradeStyle, processCloudMask,
+  UTMprojection) {
   var compositeContrast;
   var scaled_img = img.divide(1e4);
+
   var B4contrast;
   var B3contrast;
   var B2contrast;
   var B1contrast;
+  var B4Filtered;
+  var B3Filtered;
+  var filtered;
+  var exportProjection;
+  var projectedComposite;
   if (colourGradeStyle === 'TrueColour') {
     //B4contrast = exports.contrastEnhance(scaled_img.select('B4'),0.013,0.17, 2);
     //B3contrast = exports.contrastEnhance(scaled_img.select('B3'),0.025,0.19, 2);
@@ -841,14 +1266,18 @@ exports.bake_s2_colour_grading = function(img, colourGradeStyle, processCloudMas
     B2contrast = exports.contrastEnhance(scaled_img.select('B2'),0.07,0.13, 2.5); //0.067
     compositeContrast = ee.Image.rgb(B4contrast, B3contrast, B2contrast);
   } else if (colourGradeStyle === 'DeepFalse') {
+
     
-    //B3contrast = exports.contrastEnhance(scaled_img.select('B3'),0.0355,0.175, 2.5);
-    //B2contrast = exports.contrastEnhance(scaled_img.select('B2'),0.074,0.175, 2.5);
-    //B1contrast = exports.contrastEnhance(scaled_img.select('B1'),0.109,0.177, 2.5); 
+    // Thresholds from Version 0
+    //B3contrast = exports.contrastEnhance(scaled_img.select('B3'),0.034,0.175, 2.5);
+    //B2contrast = exports.contrastEnhance(scaled_img.select('B2'),0.071,0.175, 2.5);
+    //B1contrast = exports.contrastEnhance(scaled_img.select('B1'),0.103,0.177, 2.5); 
     
-    B3contrast = exports.contrastEnhance(scaled_img.select('B3'),0.034,0.175, 2.5);
-    B2contrast = exports.contrastEnhance(scaled_img.select('B2'),0.071,0.175, 2.5);
-    B1contrast = exports.contrastEnhance(scaled_img.select('B1'),0.103,0.177, 2.5); 
+    // Thresholds from Version 1
+    // Tuned to provide more contrast when combined with the brightness normalisation
+    B3contrast = exports.contrastEnhance(scaled_img.select('B3'),0.033,0.235, 2.3);
+    B2contrast = exports.contrastEnhance(scaled_img.select('B2'),0.0721,0.235, 2.7);
+    B1contrast = exports.contrastEnhance(scaled_img.select('B1'),0.1075,0.237, 2.7); 
     compositeContrast = ee.Image.rgb(B3contrast, B2contrast, B1contrast);
 
   } else if (colourGradeStyle === 'ReefTop') {
@@ -857,7 +1286,7 @@ exports.bake_s2_colour_grading = function(img, colourGradeStyle, processCloudMas
     var smootherKernel = ee.Kernel.circle({radius: 10, units: 'meters'});
     //var waveKernel = ee.Kernel.gaussian({radius: 40, sigma: 1, units: 'meters'});
 
-    var B4Filtered = scaled_img.select('B4').focal_mean({kernel: smootherKernel, iterations: 4});
+    B4Filtered = scaled_img.select('B4').focal_mean({kernel: smootherKernel, iterations: 4});
     //B4contrast = exports.contrastEnhance(B4Filtered,0.015,0.016, 1);
     // This threshold was chosen so that it would reject most waves in the Coral Sea
     // but be as sensitive as possible.
@@ -870,13 +1299,184 @@ exports.bake_s2_colour_grading = function(img, colourGradeStyle, processCloudMas
     var B11contrast = exports.contrastEnhance(scaled_img.select('B11'),0.02,0.3, 2);
     compositeContrast = ee.Image.rgb(B11contrast, B8contrast, B5contrast);
 
+  } // Note: This styling can be reproduced very closely with styling in
+  // QGIS based on the DeepFalse style. The filtering does not appear
+  // to make a significant difference to the boundary. 
+  else if (colourGradeStyle === 'B3ReefBoundary') {
+    reefKernel = ee.Kernel.circle({radius: 30, units: 'meters'});
+    B3Filtered = scaled_img.select('B3').focal_mean({kernel: reefKernel, iterations: 2});
+    // Sentinel 2 imagery has angled (13 degrees off the vertical) visible bands 
+    // (i.e. brighter wide lines across the image)
+    // at the overlap between the multiple sensors that make the imagery. These
+    // bands at the overlap are brighter than the deepest features visible in the 
+    // green imagery. To make clean thresholds we therefore need to raise the threshold
+    // above these bands. This limits the depth visible in the resulting image.
+    // On the western side of Lihou reef (56KLF) there is rim of deep coral reefs at 
+    // approximately 25 m (noting that nautical charts are not very detailed in this area).
+    // These reefs are just visible in the green channel (B3) but their brightness is 
+    // less than the brightness of the Sentinel 2 angled sensor bands.
+    // Thresholds (Lihou scene, 56KLF):
+    // Open water: 0.034 (90% above), 0.035 (20% above), 0.036 (0% above)
+    // Angled sensor bands: 0.035 (80% above), 0.036 (5% above), 0.037 (0% above)
+    // Lihou reef edge (~ 25m): 0.035 (50% above), (20% above), (0.5% above)
+    //
+    // Dianne Bank (55LGC)
+    // Open water: 0.034 (60%), 0.035 (5%), 0.036 (0%)
+    // Angled sensor bands: 0.034 (90%), 0.035 (40%), 0.036 (0%)
+    // Bank: 0.034 (4x), 0.035 (3x), 0.036 (1.5x), 0.037 (area relative to this threshold)
+    //
+    // Cairns (Arlington, Batt, Tongue Reef)
+    // Reef boundaries: 
+    //    0.037 - boundary is bigger than existing mapped GBR reef boundaries with 
+    //            most of inshore and mid shelf above threshold.
+    //    0.038 - boundary area very similar to existing mapped reef boundaries.
+    // 55KGU Australia, GBR, Hardy Reef, Block Reef
+    //    0.038 - boundary is similar to existing reefs, but does tend to pick up
+    //            noise at boundary due to water turbidity
+    //    0.039 - boundaries are much cleaner, but some deeper areas of reefs
+    //            are missing leading to fragmentation of reef boundaries.
+    // 55LCD Australia, GBR, Lizard Island, Ribbon No 10 reef
+    //    0.039 - All of mid and inshore areas are masked out. Threshold ideally higher.
+    //    0.040 - Not much better than 0.039
+    //    0.043 - Reef boundaries much better. 
+    // 56KLG North Lihou
+    //    0.043 - Boundary is clean. 
+    //    0.038 - Includes more of the reef structures.
+    // 43NCE - Madives
+    //   0.036 - Too sensitive. The whole atoll of reefs appears as one
+    //          blurry blob. Angled sensor lines are also visible.
+    // 56KKC - Australia, GBR, Cockatoo Reef
+    //   0.036 - Too sensitive - lows of turbid waters show up as reefs. 
+    //          Drowned ribbon reefs only just detected. i.e. Deep features
+    //          can't be mapped using a simple feature.
+    //          Angled sensor lines are also visible.
+    B3contrast = exports.contrastEnhance(B3Filtered,0.038,0.0381, 1);
+    compositeContrast = B3contrast;
+  } 
+  // Note: This styling can be reproduced very closely with styling in
+  // QGIS based on the DeepFalse style. The filtering does not appear
+  // to make a significant difference to the boundary.
+  else if (colourGradeStyle === 'B2ReefBoundary') {
+    reefKernel = ee.Kernel.circle({radius: 30, units: 'meters'});
+    B2Filtered = scaled_img.select('B2').focal_mean({kernel: reefKernel, iterations: 2});
+
+    // On inshore areas where the water quality can vary significantly the
+    // threshold for matching the reef boundaries are not very consistent.
+    // It is therefore difficult to use the B2 channel reliably to get
+    // estimates for reef boundaries and to apply these thresholds to the
+    // Coral Sea. We will therefore tend towards a moderately high thresold
+    // that works most of the time on the GBR.
+    // 55KGU Australia, GBR, Hardy Reef, Block Reef
+    //    0.08 - boundary is larger than mapped reefs, water turbidity being picked up
+    //    0.085 - Some merging of close reefs (Hardy and Line reef), deep reefs still no
+    //            picked up that well.
+    //    0.09 - Clean boundaries, but middles of reefs missing such as line reef and 
+    //           Circular Quay reef
+    // Cairns (Arlington, Batt, Tongue Reef)
+    // The thresholds varied significantly depending on which images were included
+    // in the composite. This is because of the difference in water clarity in
+    // the images. 
+    //   0.085 - Whole marine area above this threshold.
+    //   0.1 - 95% of marine area still above this threshold
+    //   0.11 - Arlington, Batt and Tongue reef have reasonable boundaries.
+    // 55LCD Australia, GBR, Lizard Island, Ribbon No 10 reef
+    //   0.11 - Threshold is higher than ideal
+    //   0.09 - Threshold much better.
+    // 56KLG - North of Lihou
+    //   0.09 - Doesn't include deeper rim reef. Threshold should be lower.
+    //   0.085 - Includes reef on the rim.
+    //   0.08 - Too sensitive. Reefs on rim starting to merge.
+    // 56KKC - Australia, GBR, Cockatoo Reef
+    //   0.08 - Too sensitive. Neighbouring reef features starting to merge
+    //          due to slightly turbid water between the reefs.
+    //          Deep drowned ribbon reefs just detected, threshold map
+    //          not sensitive enough to detect the full boundaries.
+    //          Picking up mid-shelf turbid water.
+    
+    B2contrast = exports.contrastEnhance(B2Filtered,0.085,0.0851, 1);
+    compositeContrast = B2contrast;
+  } else if (colourGradeStyle === 'Slope') {
+    
+    // The slope calculation requires that the image is in a projection with 
+    // units of metres. By default composite images (those from a ee.Reduce())
+    // are reprojected to EPSG:4326 (WGS 84) as part of this process, 
+    // which is unsuitable as its units are degrees, not metres.
+    // Originally I attempted to reproject the tiles back into the original WGS/UTM
+    // projection that the original Sentinel 2 are stored in.
+    // Unfortunately, while the resulting slope images displayed correctly
+    // in the interactive GEE, when exported the images had a flipped Y axis,
+    // (presumably due to a GEE bug) resulting in subsequent processing problems.
+    // As a result I switched to using EPSG:3857 WGS 84 / Pseudo-Mercator.
+    // This has units of metres, which allows the slope calculation to work.
+    // This projection would be unsuitable if we were processing near
+    // the poles due to its extreme stretching near the poles. Luckly
+    // reefs are located near the equator and so this should not be a problem.
+    exportProjection = ee.Projection('EPSG:3857');
+    
+    // Limit the resolution of the reprojection to 30 m to limit the memory use.
+    // Anything finer will result in out of memory errors for interactive GEE.
+    projectedComposite = scaled_img.select(['B2','B3','B4']).
+      reproject(exportProjection, null, 30);
+
+    // Apply spatial filtering to reduce the noise in the slope calculations.
+    // Since we are using this to study reef boundaries the spatial resolution
+    // does not need to be too high. Apply the filtering multiple times to
+    // better approximate a cleaner smoother. 
+    // Results from different filter resolution trials:
+    // 60 m, 1 iteration: Significant noise from waves and small cloud 
+    //                    Closely follows reef boundaries and detects small
+    //                    reef features.
+    // 90 m, 1 iteration: Noise is significantly less (about half). Feature
+    //                    resolution similar to 60m.
+    // 90 m, 3 iterations: Noise is significantly less than 1 iteration, (
+    //                    about 1/3 - 1/2). Shape of larger reef features is
+    //                    similar to 1 iteration, but clusters of small features
+    //                    are blurred and small reef featurs ~90 m across
+    //                    are reduced in strength. Probably slightly too much
+    //                    filtering.
+    // 180 m, 1 iteration Signifiantly less noise, but features smaller than
+    //                    about 100 m are removed.
+    filtered = projectedComposite.focal_median(
+      {kernel: ee.Kernel.circle({radius: 90, units: 'meters'}), iterations: 2}
+    );
+
+    compositeContrast = ee.Image.rgb(
+      // B4 is more noisy and less important for defining the reef boundary
+      // and so don't enhance the contrast as much.
+      exports.contrastEnhance(ee.Terrain.slope(filtered.select('B4')),0.0003,0.01, 2),
+      exports.contrastEnhance(ee.Terrain.slope(filtered.select('B3')),0.0003,0.01, 3.5),
+      exports.contrastEnhance(ee.Terrain.slope(filtered.select('B2')),0.0003,0.01, 3.5)
+    );
+
+  } else if (colourGradeStyle === 'SlopeFalse') {
+    // This style was found to be brighter than the standard Slope style but
+    // didn't provide and additional information in the resulting image. Additionally
+    // banded noise was visible in parts. As a result this style is of limited
+    // value.
+    
+    // See 'Slope' style for comments.
+    exportProjection = ee.Projection('EPSG:3857');
+    
+    projectedComposite = scaled_img.select(['B1','B2','B3']).
+      reproject(exportProjection, null, 30);
+
+    filtered = projectedComposite.focal_median(
+      {kernel: ee.Kernel.circle({radius: 90, units: 'meters'}), iterations: 2}
+    );
+
+    compositeContrast = ee.Image.rgb(
+      exports.contrastEnhance(ee.Terrain.slope(filtered.select('B3')),0.0003,0.01, 3.5),
+      exports.contrastEnhance(ee.Terrain.slope(filtered.select('B2')),0.0003,0.01, 3.5),
+      exports.contrastEnhance(ee.Terrain.slope(filtered.select('B1')),0.0003,0.01, 3.5)
+    );
+
   } else if (colourGradeStyle === 'DeepFeature') {
     var B3 = exports.contrastEnhance(scaled_img.select('B3'),0.027,0.17, 4);
     var B2 = exports.contrastEnhance(scaled_img.select('B2'),0.06,0.15, 3.3);
     
     // Apply a 30m filter to reduce the noise in the image prior to taking the difference
     var waveKernel = ee.Kernel.circle({radius: 40, units: 'meters'});
-    var B3Filtered = B3.focal_mean({kernel: waveKernel, iterations: 4});
+    B3Filtered = B3.focal_mean({kernel: waveKernel, iterations: 4});
     var B2Filtered = B2.focal_mean({kernel: waveKernel, iterations: 4});
     
     compositeContrast = exports.contrastEnhance(B2Filtered.subtract(B3Filtered.clamp(0,1)),0,0.15,2);

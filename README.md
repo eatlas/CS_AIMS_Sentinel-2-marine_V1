@@ -1,23 +1,24 @@
-# Coral Sea Sentinel 2 marine composite images 2015 – 2021 (AIMS) - V0
+# Coral Sea Sentinel 2 marine composite images 2015 – 2021 (AIMS) - V1
 
-Eric Lawrey – 21 November 2021
+Eric Lawrey – 28 Jan 2021
 
 Australian Institute of Marine Science
 
 This repository contains all the scripts used to create the Coral Sea
 Sentinel 2 marine composite images. It includes the Google Earth Engine
 javascript code and the Python scripts for subsequent post processing
-of the imagery.
+of the imagery. This repository contains the scripts to create the data 
+available from https://eatlas.org.au/data/uuid/08aad1bf-dbde-4d16-8c3c-d92f7f855184.
+
+This dataset contains processing for two regions:
+- Coral Sea: Used for mapping the reefs for the [Coral Sea mapping project](https://eatlas.org.au/projects-other/coral-sea-reef-mapping)
+- Global: Selected reef areas around Australia and the rest of the world. These
+were done to test how well the image processing algorithms work across the globe
+and to allow validation of the approach used for reef boundary mapping with a
+diverse set of reefs.
 
 This repository is intended to allow others to reproduce and extend this
-dataset. The scripts in this repository represent a draft version of this
-dataset, as the composite imagery was only created from a partial review (50-70%)
-of all the Sentinel 2 imagery. A future more refined version of this dataset 
-will be published in approximately 6 months. When it is available it will be linked to
-from here. 
-
-No functional upgrades will be made to this repository as it represents about
-snap shot of the processing that was used to create the dataset.
+dataset. 
 
 More information about this dataset can be found on the 
 [Dataset metadata page](https://eatlas.org.au/data/uuid/2932dc63-9c9b-465f-80bf-09073aacaf1c)
@@ -28,6 +29,7 @@ This dataset contains composite satellite images for the Coral Sea
 region based on 10 m resolution Sentinel 2 imagery from 2015 – 2021. 
 
 This collection contains composite imagery for 31 Sentinel 2 tiles in the Coral Sea. 
+
 For each tile there are 5 different colour and contrast enhancement styles intended 
 to highlight different features.
 

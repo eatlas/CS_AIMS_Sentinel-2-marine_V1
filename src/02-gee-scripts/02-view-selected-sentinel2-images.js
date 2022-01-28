@@ -1,7 +1,8 @@
 // Copyright 2021 Eric Lawrey - Australian Institute of Marine Science
 // MIT License https://mit-license.org/
 
-// This script is written to run on the Google Earth Engine.
+// This script is written to run on the Google Earth Engine at 
+// https://code.earthengine.google.com/8381c7f6846e4460a5271dd8469896ae
 //
 // Use this script to browse through a specific set of Sentinel 2
 // images. This can be used to fine tune the selection of images obtained
@@ -11,7 +12,7 @@
 // === README: Change the path to your local copy of the utils code ====
 // The path to the util code must be an absolute path including the
 // username and repository
-var utils = require('users/ericlawrey/CS_AIMS_Sentinel2-marine_V0:utils');
+var utils = require('users/ericlawrey/CS_AIMS_Sentinel2-marine_V1:utils.js');
 
 // This is the list of images to look through. Think of this list as
 // as a temporary list of images that you are working on that you wish
@@ -20,12 +21,10 @@ var utils = require('users/ericlawrey/CS_AIMS_Sentinel2-marine_V0:utils');
 // in reviewing.
 var IMAGE_IDS = 
   [
-		"COPERNICUS/S2/20190115T004709_20190115T004705_T55LBK",
-		"COPERNICUS/S2/20190510T004711_20190510T004710_T55LBK",
-		"COPERNICUS/S2/20190907T004711_20190907T004705_T55LBK",
-		"COPERNICUS/S2/20200613T004711_20200613T004712_T55LBK",
-		"COPERNICUS/S2/20200822T004711_20200822T004712_T55LBK",
-		"COPERNICUS/S2/20210802T004709_20210802T004707_T55LBK"
+		// Good
+    "COPERNICUS/S2/20180602T233821_20180602T233816_T57KVU",
+    "COPERNICUS/S2/20180707T233819_20180707T233814_T57KVU",
+    "COPERNICUS/S2/20210221T233819_20210221T233813_T57KVU"
   ];
 
 // Find the bounds of all the tiles that the images are in. Restrict the search
@@ -93,18 +92,22 @@ var updateUI = function() {
   var composite = utils.removeSunGlint(image)
     .rename(['B1','B2','B3','B4','B5','B6','B7','B8',
       'B8A','B9','B10','B11','B12','QA10','QA20','QA60']);
+  var projection = composite.select('B1').projection();
   var includeCloudmask = false;
   
   Map.layers().reset();
   var trueColour_composite = utils.bake_s2_colour_grading(composite, 'TrueColour', includeCloudmask);
   Map.addLayer(trueColour_composite, visParams, 'Sentinel-2 True Colour',false);
   
-  var deepMarine_composite = utils.bake_s2_colour_grading(composite, 'DeepMarine', includeCloudmask);
-  Map.addLayer(deepMarine_composite, visParams, 'Sentinel-2 Deep Marine',true);
+  var deepMarine_composite = utils.bake_s2_colour_grading(composite, 'DeepFalse', includeCloudmask);
+  Map.addLayer(deepMarine_composite, visParams, 'Sentinel-2 Deep False',true);
 
   var reefTop_composite = utils.bake_s2_colour_grading(composite, 'ReefTop', includeCloudmask);
   Map.addLayer(reefTop_composite, visParams, 'Sentinel-2 ReefTop',false);
 
+  var slope_composite = utils.bake_s2_colour_grading(composite, 'Slope', includeCloudmask, projection);
+  Map.addLayer(slope_composite, visParams, 'Sentinel-2 Slope',false);
+  
   //var deepMarine2_composite = utils.bake_s2_colour_grading(composite, 'TrueColourA', includeCloudmask);
   //print(deepMarine_composite);
   //print(deepMarine2_composite);
